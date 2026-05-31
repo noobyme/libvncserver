@@ -520,6 +520,7 @@ typedef struct _rfbClientRec {
     rfbBool readyForSetColourMapEntries;
     rfbBool useCopyRect;
     int preferredEncoding;
+    int mono1bppDitherMode; /**< dither mode for rfbEncodingMono1bpp: 0 = Floyd-Steinberg */
     int correMaxWidth, correMaxHeight;
 
     rfbBool viewOnly;
@@ -850,6 +851,7 @@ extern void rfbNewUDPConnection(rfbScreenInfoPtr rfbScreen,rfbSocket sock);
 extern void rfbProcessUDPInput(rfbScreenInfoPtr rfbScreen);
 extern rfbBool rfbSendFramebufferUpdate(rfbClientPtr cl, sraRegionPtr updateRegion);
 extern rfbBool rfbSendRectEncodingRaw(rfbClientPtr cl, int x,int y,int w,int h);
+extern rfbBool rfbSendRectEncodingMono1bpp(rfbClientPtr cl, int x, int y, int w, int h);
 extern rfbBool rfbSendUpdateBuf(rfbClientPtr cl);
 extern void rfbSendServerCutText(rfbScreenInfoPtr rfbScreen,char *str, int len);
 #ifdef LIBVNCSERVER_HAVE_LIBZ

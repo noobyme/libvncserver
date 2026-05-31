@@ -498,6 +498,17 @@ typedef struct {
 #define rfbEncodingSubsamp8X           0xFFFFFD04
 #define rfbEncodingSubsamp16X          0xFFFFFD05
 
+/* Mono 1-bpp encoding: 8 pixels packed per byte, MSB = leftmost pixel.
+ * Wire format per rectangle:
+ *   [rfbFramebufferUpdateRectHeader 12 B]
+ *   [uint8_t dither_mode: 0 = Floyd-Steinberg]
+ *   [uint8_t data[ceil(w/8) * h]]  -- zero-padded per row
+ */
+#define rfbEncodingMono1bpp            0xFFFFFD10  /* -752 */
+
+/* Inline dither-mode byte values sent inside each Mono1bpp rect */
+#define rfbMono1bppDitherFloydSteinberg  0
+
 #define rfbEncodingCompressLevel0  0xFFFFFF00
 #define rfbEncodingCompressLevel1  0xFFFFFF01
 #define rfbEncodingCompressLevel2  0xFFFFFF02

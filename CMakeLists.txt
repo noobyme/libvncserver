@@ -376,6 +376,7 @@ set(LIBVNCSERVER_SOURCES
     ${LIBVNCSERVER_DIR}/cargs.c
     ${LIBVNCSERVER_DIR}/ultra.c
     ${LIBVNCSERVER_DIR}/scale.c
+    ${LIBVNCSERVER_DIR}/mono1bpp.c
     ${CRYPTO_SOURCES}
 )
 
