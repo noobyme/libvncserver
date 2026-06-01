@@ -226,3 +226,165 @@ rfbBool rfbSendRectEncodingMono1bpp(rfbClientPtr cl,
     free(packed);
     return TRUE;
 }
+
+/* ------------------------------------------------------------------ */
+/* Mono1bppZ: Floyd-Steinberg dithered 1-bpp with zlib compression     */
+/* ------------------------------------------------------------------ */
+
+#ifdef LIBVNCSERVER_HAVE_LIBZ
+#include <zlib.h>
+
+/*
+ * rfbSendRectEncodingMono1bppZ
+ *
+ * Wire format per rectangle:
+ *   [rfbFramebufferUpdateRectHeader  12 B]
+ *   [uint8_t dither_mode              1 B]   0 = Floyd-Steinberg
+ *   [rfbZlibHeader                    4 B]   nBytes of compressed data
+ *   [compressed data                  N B]   zlib-deflated packed bits
+ *
+ * Uses a dedicated per-client z_stream (mono1bppZStream) so that this
+ * encoding and the standard Zlib encoding can coexist without corrupting
+ * each other's deflate state.
+ *
+ * Follows the updateBuf pattern (not rfbWriteExact) so the
+ * FramebufferUpdate header in updateBuf is sent in the right order —
+ * no explicit flush-first required.
+ */
+rfbBool rfbSendRectEncodingMono1bppZ(rfbClientPtr cl,
+                                     int x, int y, int w, int h)
+{
+    rfbFramebufferUpdateRectHeader hdr;
+    rfbZlibHeader                  zlibHdr;
+    uint8_t  dither_mode_byte;
+    int      rowBytes;
+    int      rawLen;
+    int      maxCompLen;
+    int      deflateResult;
+    int      previousOut;
+    int      i;
+    uint8_t *packed   = NULL;
+    uint8_t *compBuf  = NULL;
+    int      compLen;
+
+    rowBytes   = (w + 7) >> 3;
+    rawLen     = rowBytes * h;
+
+    /* zlib worst-case expansion: rawLen + ceil(rawLen/100) + 12 */
+    maxCompLen = rawLen + ((rawLen + 99) / 100) + 12;
+
+    packed = (uint8_t *)malloc(rawLen);
+    if (!packed) {
+        rfbLogPerror("rfbSendRectEncodingMono1bppZ: malloc packed");
+        return FALSE;
+    }
+
+    compBuf = (uint8_t *)malloc(maxCompLen);
+    if (!compBuf) {
+        rfbLogPerror("rfbSendRectEncodingMono1bppZ: malloc compBuf");
+        free(packed);
+        return FALSE;
+    }
+
+    /* Dither into packed buffer */
+    if (!fsDitherAndPack(cl, x, y, w, h, packed)) {
+        rfbLogPerror("rfbSendRectEncodingMono1bppZ: dither OOM");
+        free(compBuf);
+        free(packed);
+        return FALSE;
+    }
+
+    /* Initialise the dedicated stream on first use for this client */
+    if (!cl->mono1bppZStreamInited) {
+        cl->mono1bppZStream.total_in  = 0;
+        cl->mono1bppZStream.total_out = 0;
+        cl->mono1bppZStream.zalloc    = Z_NULL;
+        cl->mono1bppZStream.zfree     = Z_NULL;
+        cl->mono1bppZStream.opaque    = Z_NULL;
+        deflateInit2(&cl->mono1bppZStream,
+                     cl->zlibCompressLevel,
+                     Z_DEFLATED,
+                     MAX_WBITS,
+                     MAX_MEM_LEVEL,
+                     Z_DEFAULT_STRATEGY);
+        cl->mono1bppZStreamInited = TRUE;
+    }
+
+    cl->mono1bppZStream.next_in   = (Bytef *)packed;
+    cl->mono1bppZStream.avail_in  = rawLen;
+    cl->mono1bppZStream.next_out  = (Bytef *)compBuf;
+    cl->mono1bppZStream.avail_out = maxCompLen;
+    cl->mono1bppZStream.data_type = Z_BINARY;
+
+    previousOut = cl->mono1bppZStream.total_out;
+
+    deflateResult = deflate(&cl->mono1bppZStream, Z_SYNC_FLUSH);
+
+    compLen = cl->mono1bppZStream.total_out - previousOut;
+
+    free(packed);
+
+    if (deflateResult != Z_OK) {
+        rfbErr("rfbSendRectEncodingMono1bppZ: deflate error: %s\n",
+               cl->mono1bppZStream.msg);
+        free(compBuf);
+        return FALSE;
+    }
+
+    rfbStatRecordEncodingSent(cl, rfbEncodingMono1bppZ,
+                              sz_rfbFramebufferUpdateRectHeader + 1 +
+                              sz_rfbZlibHeader + compLen,
+                              sz_rfbFramebufferUpdateRectHeader + 1 + rawLen);
+
+    /* --- Write into updateBuf (same pattern as zlib.c) --- */
+
+    /* Flush updateBuf if there is not enough room for the fixed headers */
+    if (cl->ublen + sz_rfbFramebufferUpdateRectHeader + 1 + sz_rfbZlibHeader
+            > UPDATE_BUF_SIZE) {
+        if (!rfbSendUpdateBuf(cl)) {
+            free(compBuf);
+            return FALSE;
+        }
+    }
+
+    /* Rectangle header */
+    hdr.r.x      = Swap16IfLE((uint16_t)x);
+    hdr.r.y      = Swap16IfLE((uint16_t)y);
+    hdr.r.w      = Swap16IfLE((uint16_t)w);
+    hdr.r.h      = Swap16IfLE((uint16_t)h);
+    hdr.encoding = Swap32IfLE((uint32_t)rfbEncodingMono1bppZ);
+    memcpy(&cl->updateBuf[cl->ublen], &hdr, sz_rfbFramebufferUpdateRectHeader);
+    cl->ublen += sz_rfbFramebufferUpdateRectHeader;
+
+    /* Dither-mode byte */
+    dither_mode_byte = (uint8_t)rfbMono1bppDitherFloydSteinberg;
+    cl->updateBuf[cl->ublen++] = (char)dither_mode_byte;
+
+    /* Zlib length header */
+    zlibHdr.nBytes = Swap32IfLE(compLen);
+    memcpy(&cl->updateBuf[cl->ublen], &zlibHdr, sz_rfbZlibHeader);
+    cl->ublen += sz_rfbZlibHeader;
+
+    /* Compressed data — copy in UPDATE_BUF_SIZE-sized chunks */
+    for (i = 0; i < compLen; ) {
+        int bytesToCopy = UPDATE_BUF_SIZE - cl->ublen;
+        if (i + bytesToCopy > compLen)
+            bytesToCopy = compLen - i;
+
+        memcpy(&cl->updateBuf[cl->ublen], &compBuf[i], bytesToCopy);
+        cl->ublen += bytesToCopy;
+        i         += bytesToCopy;
+
+        if (cl->ublen == UPDATE_BUF_SIZE) {
+            if (!rfbSendUpdateBuf(cl)) {
+                free(compBuf);
+                return FALSE;
+            }
+        }
+    }
+
+    free(compBuf);
+    return TRUE;
+}
+
+#endif /* LIBVNCSERVER_HAVE_LIBZ */

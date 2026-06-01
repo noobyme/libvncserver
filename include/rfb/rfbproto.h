@@ -506,7 +506,16 @@ typedef struct {
  */
 #define rfbEncodingMono1bpp            0xFFFFFD10  /* -752 */
 
-/* Inline dither-mode byte values sent inside each Mono1bpp rect */
+/* Mono 1-bpp + zlib: same dithering as Mono1bpp but the packed bits are
+ * deflated.  Wire format per rectangle:
+ *   [rfbFramebufferUpdateRectHeader 12 B]
+ *   [uint8_t dither_mode: 0 = Floyd-Steinberg]
+ *   [rfbZlibHeader 4 B]  -- nBytes of compressed data that follows
+ *   [uint8_t compressed_data[nBytes]]
+ */
+#define rfbEncodingMono1bppZ           0xFFFFFD0F  /* -753 */
+
+/* Inline dither-mode byte values sent inside each Mono1bpp / Mono1bppZ rect */
 #define rfbMono1bppDitherFloydSteinberg  0
 
 #define rfbEncodingCompressLevel0  0xFFFFFF00

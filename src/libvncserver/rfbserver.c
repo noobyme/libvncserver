@@ -1112,6 +1112,7 @@ rfbSendSupportedEncodings(rfbClientPtr cl)
 	rfbEncodingCoRRE,
 	rfbEncodingHextile,
 	rfbEncodingMono1bpp,
+	rfbEncodingMono1bppZ,
 #ifdef LIBVNCSERVER_HAVE_LIBZ
 	rfbEncodingZlib,
 	rfbEncodingZRLE,
@@ -2432,6 +2433,7 @@ rfbProcessClientNormalMessage(rfbClientPtr cl)
             case rfbEncodingHextile:
             case rfbEncodingUltra:
             case rfbEncodingMono1bpp:
+            case rfbEncodingMono1bppZ:
 #ifdef LIBVNCSERVER_HAVE_LIBZ
 	    case rfbEncodingZlib:
             case rfbEncodingZRLE:
@@ -3614,6 +3616,10 @@ rfbSendFramebufferUpdate(rfbClientPtr cl,
             break;
         case rfbEncodingMono1bpp:
             if (!rfbSendRectEncodingMono1bpp(cl, x, y, w, h))
+                goto updateFailed;
+            break;
+        case rfbEncodingMono1bppZ:
+            if (!rfbSendRectEncodingMono1bppZ(cl, x, y, w, h))
                 goto updateFailed;
             break;
         case rfbEncodingUltra:

@@ -605,6 +605,12 @@ typedef struct _rfbClientRec {
     struct z_stream_s compStream;
     rfbBool compStreamInited;
     uint32_t zlibCompressLevel;
+
+    /* mono1bppZ encoding -- dedicated zlib stream, kept separate from
+     * compStream so that switching between Zlib and Mono1bppZ encodings
+     * does not corrupt either stream's deflate state. */
+    struct z_stream_s mono1bppZStream;
+    rfbBool mono1bppZStreamInited;
 #endif
 #if defined(LIBVNCSERVER_HAVE_LIBZ) || defined(LIBVNCSERVER_HAVE_LIBPNG)
     /** the quality level is also used by ZYWRLE and TightPng */
@@ -852,6 +858,7 @@ extern void rfbProcessUDPInput(rfbScreenInfoPtr rfbScreen);
 extern rfbBool rfbSendFramebufferUpdate(rfbClientPtr cl, sraRegionPtr updateRegion);
 extern rfbBool rfbSendRectEncodingRaw(rfbClientPtr cl, int x,int y,int w,int h);
 extern rfbBool rfbSendRectEncodingMono1bpp(rfbClientPtr cl, int x, int y, int w, int h);
+extern rfbBool rfbSendRectEncodingMono1bppZ(rfbClientPtr cl, int x, int y, int w, int h);
 extern rfbBool rfbSendUpdateBuf(rfbClientPtr cl);
 extern void rfbSendServerCutText(rfbScreenInfoPtr rfbScreen,char *str, int len);
 #ifdef LIBVNCSERVER_HAVE_LIBZ
